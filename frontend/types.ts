@@ -5,8 +5,9 @@ export interface JobMatch {
   url: string;
   snippet: string;
   matchScore: number;
-  recommendation: 'Strong Yes' | 'Yes' | 'Maybe' | 'No';
+  recommendation: 'Strong Yes' | 'Yes' | 'Maybe' | 'No' | 'Error';
   reasoning: string;
+  status?: 'success' | 'error';
 }
 
 export interface AgentLog {
