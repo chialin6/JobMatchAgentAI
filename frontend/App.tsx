@@ -58,41 +58,92 @@ function App() {
       return;
     }
     
-    addLog(`Starting evaluation agent for ${links.length} job links...`, 'info');
+    addLog(`Starting evaluation for ${links.length} job(s). Web search may take 10-15s per job...`, 'info');
     addLog(`Criteria: ${inputs.criteria}`, 'info');
 
-    let allMatches: JobMatch[] = [];
+    let successCount = 0;
 
-    for (let i = 0; i < links.length; i++) {
-      const url = links[i];
+    // Helper function to process a single link
+    const evaluateLink = async (url: string, index: number) => {
+      const jobId = index + 1;
+      
+      const addResult = (newJob: JobMatch) => {
+        setResults(prev => {
+          const updated = [...prev, newJob];
+          // Sort: successful jobs first (by score), then errors
+          return updated.sort((a, b) => {
+            if (a.status === 'error' && b.status !== 'error') return 1;
+            if (a.status !== 'error' && b.status === 'error') return -1;
+            return b.matchScore - a.matchScore;
+          });
+        });
+      };
+
       try {
-        addLog(`[Job ${i + 1}/${links.length}] Fetching details for: ${url.substring(0, 40)}...`, 'info');
+        addLog(`[Job ${jobId}] Fetching details via Google Search: ${url.substring(0, 35)}...`, 'info');
         const jobDetailsText = await fetchJobDetails(url);
         
         if (!jobDetailsText || jobDetailsText.trim() === '') {
-          addLog(`[Job ${i + 1}] Could not retrieve meaningful details for this link.`, 'warning');
-          continue;
+          addLog(`[Job ${jobId}] Could not retrieve meaningful details for this link.`, 'warning');
+          addResult({
+            id: Math.random().toString(36).substring(2, 9),
+            url,
+            company: 'Unknown Company',
+            title: 'Failed to fetch job details',
+            snippet: 'The AI could not retrieve meaningful details for this URL.',
+            matchScore: 0,
+            recommendation: 'Error',
+            reasoning: 'Fetch failed or returned empty results.',
+            status: 'error'
+          });
+          return;
         }
         
-        addLog(`[Job ${i + 1}] Details retrieved. Evaluating against resume and criteria...`, 'info');
-        
+        addLog(`[Job ${jobId}] Details retrieved. Evaluating against resume...`, 'info');
         const match = await evaluateJob(url, jobDetailsText, inputs.resume, inputs.criteria);
         
         if (match) {
-          addLog(`[Job ${i + 1}] Evaluated: ${match.title} at ${match.company} - ${match.recommendation}`, 'success');
-          allMatches.push(match);
-          // Update results incrementally
-          setResults(prev => [...prev, match].sort((a, b) => b.matchScore - a.matchScore));
+          addLog(`[Job ${jobId}] Done: ${match.title} at ${match.company} (${match.recommendation})`, 'success');
+          successCount++;
+          addResult({ ...match, status: 'success' });
         } else {
-          addLog(`[Job ${i + 1}] Failed to generate a structured evaluation.`, 'warning');
+          addLog(`[Job ${jobId}] Failed to generate a structured evaluation.`, 'warning');
+          addResult({
+            id: Math.random().toString(36).substring(2, 9),
+            url,
+            company: 'Unknown Company',
+            title: 'Evaluation Failed',
+            snippet: 'The AI failed to generate a structured evaluation for this job.',
+            matchScore: 0,
+            recommendation: 'Error',
+            reasoning: 'Evaluation parsing failed.',
+            status: 'error'
+          });
         }
-        
       } catch (error) {
-        addLog(`[Job ${i + 1}] Error during processing: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        addLog(`[Job ${jobId}] Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        addResult({
+          id: Math.random().toString(36).substring(2, 9),
+          url,
+          company: 'Unknown Company',
+          title: 'Processing Error',
+          snippet: error instanceof Error ? error.message : 'Unknown error occurred during processing.',
+          matchScore: 0,
+          recommendation: 'Error',
+          reasoning: 'An exception was thrown during the fetch or evaluation process.',
+          status: 'error'
+        });
       }
+    };
+
+    // Process links in batches of 3 to speed up execution without hitting rate limits too hard
+    const batchSize = 3;
+    for (let i = 0; i < links.length; i += batchSize) {
+      const batch = links.slice(i, i + batchSize);
+      await Promise.all(batch.map((url, index) => evaluateLink(url, i + index)));
     }
 
-    addLog(`Agent finished. Evaluated ${allMatches.length} jobs.`, 'success');
+    addLog(`Agent finished. Successfully evaluated ${successCount} out of ${links.length} jobs.`, 'success');
     setStatus('completed');
   };
 
@@ -211,7 +262,7 @@ function App() {
               Evaluation Results
               {results.length > 0 && (
                 <span className="bg-indigo-100 text-indigo-800 text-xs py-1 px-2.5 rounded-full font-bold">
-                  {results.length} evaluated
+                  {results.length} processed
                 </span>
               )}
             </h2>
