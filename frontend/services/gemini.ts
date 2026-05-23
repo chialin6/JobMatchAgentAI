@@ -1,8 +1,22 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { JobMatch } from '../types.ts';
 
-// Initialize the SDK. It expects process.env.API_KEY to be available in the environment.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY, vertexai: true });
+// Safely get API key depending on the environment to prevent ReferenceErrors
+let apiKey = '';
+try {
+  // @ts-ignore
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    // @ts-ignore
+    apiKey = process.env.API_KEY;
+  } else if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
+    apiKey = (import.meta as any).env.VITE_API_KEY;
+  }
+} catch (e) {
+  console.warn('Could not read API key from environment');
+}
+
+// Initialize the SDK.
+const ai = new GoogleGenAI({ apiKey, vertexai: true });
 
 /**
  * Step 1: Use Google Search tool to fetch information about a specific job URL.
@@ -10,16 +24,13 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY, vertexai: true });
  */
 export async function fetchJobDetails(url: string): Promise<string> {
   const prompt = `
-    I need information about a specific job posting.
+    Task: Extract job posting details from the following URL.
     URL: ${url}
     
-    Please use your Google Search tool to look up this exact URL or search for the job posting it represents.
-    Return a comprehensive summary including:
-    1. Company Name
-    2. Job Title
-    3. Full Job Description (responsibilities, requirements, qualifications)
-    
-    If you cannot access the URL directly, use the URL text to infer the company and role, and search for that specific role to provide the details.
+    Instructions:
+    1. Use the Google Search tool to find the content of this job posting.
+    2. Return ONLY the Company Name, Job Title, and the Job Description.
+    3. Be concise. If you cannot find the exact page immediately, infer the company and title from the URL and provide a brief summary. Do not perform multiple exhaustive searches.
   `;
 
   try {
